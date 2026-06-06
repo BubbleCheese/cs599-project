@@ -190,9 +190,7 @@ cs599-project/
 
 │ ├── CS599\_大作业报告.pdf # 最终报告
 
-│ ├── proposal.md # Milestone 1 Proposal
-
-│ ├── architecture.md # 架构设计文档
+│ ├── proposal\&architecture.md # Milestone 1 Proposal和架构设计文档
 
 │ └── spec/ # SDD 规格文档
 
