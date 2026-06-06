@@ -85,7 +85,7 @@ Social Consensus Agent 是一个基于多智能体协作的群体决策系统。
 
 系统采用分层架构设计，自上而下分为用户层、智能体层、编排层、记忆层和工具层。整体架构如下图所示：
 
-!\[Social Consensus Agent 五层架构图](demo/arch\_struct.png)
+!\[Social Consensus Agent 五层架构图](D:\\cs599-project\\docs\\demo\\arch\_struct.png)
 
 图1：Social Consensus Agent 系统架构图
 
@@ -101,7 +101,7 @@ Social Consensus Agent 是一个基于多智能体协作的群体决策系统。
 
 系统核心是一个由 LangGraph 编排的有限状态机，定义了从偏好收集到最终裁决的完整协商流程：
 
-!\[协商状态流转流程图](demo/langgraph\_flow.png)
+!\[协商状态流转流程图](D:\\cs599-project\\docs\\demo\\state\_machine.png)
 
 图2：LangGraph 状态机 — 协商工作流
 
