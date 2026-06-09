@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Social Consensus Agent - 群体协商观影智能体</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    }
+
+    .state-node {
+      transition: all 0.3s ease;
+    }
+
+    .state-active {
+      transform: scale(1.05);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
+
+    .vote-approve {
+      background: #10B981;
+    }
+
+    .vote-veto {
+      background: #EF4444;
+    }
+
+    .vote-abstain {
+      background: #F59E0B;
+    }
+
+    .log-state {
+      background: #EFF6FF;
+      color: #1D4ED8;
+      font-weight: 500;
+    }
+
+    .log-veto {
+      background: #FEF2F2;
+      color: #DC2626;
+    }
+
+    .log-ok {
+      background: #ECFDF5;
+      color: #059669;
+    }
+
+    .log-normal {
+      color: #4B5563;
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 1
+      }
+
+      50% {
+        opacity: 0.5
+      }
+    }
+
+    .animate-pulse-fast {
+      animation: pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+  </style>
+</head>
+
+<body class="bg-gradient-to-br from-slate-50 to-slate-100 min-h-screen">
+
+  <!-- Header -->
+  <header class="bg-white border-b shadow-sm sticky top-0 z-50">
+    <div class="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div
+          class="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-lg flex items-center justify-center text-white text-lg">
+          🎬</div>
+        <div>
+          <h1 class="text-xl font-bold text-slate-900">Social Consensus Agent</h1>
+          <p class="text-xs text-slate-500">群体协商观影智能体</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <span id="backend-status" class="text-xs px-2 py-1 rounded border flex items-center gap-1">
+          <span class="w-2 h-2 rounded-full bg-gray-300"></span> 检测中...
+        </span>
+        <button onclick="checkBackend()" class="text-xs px-3 py-1 border rounded hover:bg-gray-50">刷新</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-4 py-6 space-y-6">
+
+    <!-- Backend Offline Warning -->
+    <div id="backend-warning" class="hidden">
+      <div class="bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3 text-red-700">
+        <span class="text-xl">⚠️</span>
+        <div>
+          <p class="font-medium">后端服务未启动</p>
+          <p class="text-sm">请运行: <code
+              class="bg-red-100 px-2 py-0.5 rounded text-xs">python -m uvicorn src.api.server:app --reload --port 8000</code>
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- State Machine -->
+    <div class="bg-white rounded-lg border shadow-sm">
+      <div class="px-4 py-3 border-b">
+        <h2 class="text-sm font-semibold flex items-center gap-2">📊 协商状态机</h2>
+      </div>
+      <div class="p-4 overflow-x-auto">
+        <div class="flex items-center gap-1 min-w-max" id="state-machine">
+          <!-- Filled by JS -->
+        </div>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <!-- Left: Input + Result -->
+      <div class="lg:col-span-2 space-y-6">
+
+        <!-- User Inputs -->
+        <div class="bg-white rounded-lg border shadow-sm">
+          <div class="px-4 py-3 border-b flex items-center justify-between">
+            <h2 class="text-sm font-semibold flex items-center gap-2">👥 群体偏好输入
+              <span id="user-count" class="text-xs bg-slate-100 px-2 py-0.5 rounded">2人</span>
+            </h2>
+          </div>
+          <div class="p-4 space-y-3" id="users-container">
+            <!-- Filled by JS -->
+          </div>
+          <div class="px-4 pb-4 flex gap-2">
+            <button onclick="addUser()"
+              class="px-3 py-2 border rounded-lg text-sm hover:bg-gray-50 flex items-center gap-1">
+              <span>+</span> 添加成员
+            </button>
+            <button onclick="startNegotiate()" id="btn-negotiate" disabled
+              class="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg text-sm font-medium flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-md transition-all">
+              <span id="btn-icon">▶</span> <span id="btn-text">开始协商</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Result Card -->
+        <div id="result-card" class="hidden">
+          <div class="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-lg p-6">
+            <h2 class="text-sm font-semibold flex items-center gap-2 mb-4">
+              ⭐ 最终推荐 <span id="fallback-badge" class="hidden text-xs bg-gray-200 px-2 py-0.5 rounded">安全牌</span>
+            </h2>
+            <div class="text-center py-4">
+              <h3 class="text-3xl font-bold text-slate-900 mb-2" id="result-title">-</h3>
+              <div class="flex items-center justify-center gap-2 flex-wrap" id="result-genres"></div>
+            </div>
+            <div class="grid grid-cols-3 gap-4 mt-4">
+              <div class="text-center p-3 bg-white rounded-lg">
+                <p class="text-lg font-bold text-blue-600" id="result-duration">-</p>
+                <p class="text-xs text-slate-500">时长(分钟)</p>
+              </div>
+              <div class="text-center p-3 bg-white rounded-lg">
+                <p class="text-lg font-bold text-yellow-600" id="result-rating">-</p>
+                <p class="text-xs text-slate-500">评分</p>
+              </div>
+              <div class="text-center p-3 bg-white rounded-lg">
+                <p class="text-lg font-bold text-green-600" id="result-score">-</p>
+                <p class="text-xs text-slate-500">群体满意度</p>
+              </div>
+            </div>
+            <p class="text-sm text-slate-600 mt-4 text-center" id="result-desc"></p>
+            <div class="flex items-center justify-center gap-4 mt-3 text-xs text-slate-500">
+              <span>协商轮次: <span id="result-rounds">-</span></span>
+              <span id="result-dissenters" class="hidden text-orange-600"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Votes -->
+        <div id="votes-card" class="hidden">
+          <div class="bg-white rounded-lg border shadow-sm">
+            <div class="px-4 py-3 border-b">
+              <h2 class="text-sm font-semibold">🗳️ 投票详情</h2>
+            </div>
+            <div class="p-4 space-y-2" id="votes-list"></div>
+          </div>
+        </div>
+
+        <!-- Error -->
+        <div id="error-card" class="hidden">
+          <div class="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm" id="error-text"></div>
+        </div>
+
+      </div>
+
+      <!-- Right: Scenarios + Rules + Log -->
+      <div class="space-y-6">
+
+        <!-- Scenarios -->
+        <div class="bg-white rounded-lg border shadow-sm">
+          <div class="px-4 py-3 border-b">
+            <h2 class="text-sm font-semibold flex items-center gap-2">✨ 预设场景</h2>
+          </div>
+          <div class="p-2 space-y-1" id="scenarios-list"></div>
+        </div>
+
+        <!-- Rules -->
+        <div class="bg-white rounded-lg border shadow-sm">
+          <div class="px-4 py-3 border-b">
+            <h2 class="text-sm font-semibold">📋 妥协规则</h2>
+          </div>
+          <div class="p-4 text-xs text-slate-600 space-y-2">
+            <div class="flex gap-2"><span
+                class="shrink-0 px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-xs font-medium">R1</span><span>类型交叉：取偏好交集</span>
+            </div>
+            <div class="flex gap-2"><span
+                class="shrink-0 px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-xs font-medium">R2</span><span>时长约束：最严格优先</span>
+            </div>
+            <div class="flex gap-2"><span
+                class="shrink-0 px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-medium">R3</span><span>历史加权：向量库检索</span>
+            </div>
+            <div class="flex gap-2"><span
+                class="shrink-0 px-1.5 py-0.5 bg-orange-100 text-orange-700 rounded text-xs font-medium">R4</span><span>轮流优先：不可调和时</span>
+            </div>
+            <div class="flex gap-2"><span
+                class="shrink-0 px-1.5 py-0.5 bg-gray-100 text-gray-700 rounded text-xs font-medium">R5</span><span>安全牌兜底：高分喜剧</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Log -->
+        <div id="log-card" class="hidden">
+          <div class="bg-white rounded-lg border shadow-sm">
+            <div class="px-4 py-3 border-b">
+              <h2 class="text-sm font-semibold">📜 协商日志</h2>
+            </div>
+            <div class="p-2 max-h-[350px] overflow-y-auto space-y-1" id="log-list"></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <footer class="text-center text-xs text-slate-400 py-6">
+      <p>Social Consensus Agent | CS599 企业级应用软件设计与开发 | Agentic AI 原生开发</p>
+      <p class="mt-1">方向一：多智能体协作 + LLM + Chroma + MCP</p>
+    </footer>
+  </main>
+
+  <script>
+    const API_BASE = 'http://localhost:8000';
+
+    const STATES = [
+      { id: 'collect_prefs', label: '收集偏好', color: '#3B82F6' },
+      { id: 'detect_conflict', label: '冲突检测', color: '#F59E0B' },
+      { id: 'resolve', label: '冲突解决', color: '#EF4444' },
+      { id: 'generate_proposal', label: '生成提案', color: '#10B981' },
+      { id: 'collect_votes', label: '收集投票', color: '#8B5CF6' },
+      { id: 'final_decision', label: '最终裁决', color: '#059669' },
+      { id: 'fallback', label: '安全牌', color: '#6B7280' },
+    ];
+
+    const SCENARIOS = [
+      { id: 1, name: '科幻 vs 喜剧 (2人)', users: { 'Alice': '我喜欢科幻片，时长不要超过120分钟，不要恐怖片', 'Bob': '我想看喜剧片，轻松一点的，时长90分钟以内最好' } },
+      { id: 2, name: '恐怖片红线 (2人)', users: { 'Alice': '我想看悬疑惊悚片，越刺激越好', 'Bob': '我害怕恐怖片和惊悚片，想看爱情片或者剧情片，不要超过2小时' } },
+      { id: 3, name: '高分 vs 随意 (2人)', users: { 'Alice': '我只看高分电影，评分至少8分以上，科幻或剧情都可以', 'Bob': '我随便，什么都行，搞笑的最好' } },
+      { id: 4, name: '宿舍4人多目标博弈', users: { 'Alice': '我喜欢科幻和动作片，评分高的，不要太长', 'Bob': '我只看喜剧和动画片，超过100分钟的不行', 'Carol': '我要看爱情片或者剧情片，拒绝恐怖和战争', 'David': '我都可以，最好是大家都喜欢的，评分8分以上' } },
+      { id: 5, name: '家庭6人代际差异', users: { '爷爷': '我想看战争片或者历史剧情片', '奶奶': '爱情片或者家庭剧都可以，不要太悲伤', '爸爸': '动作片或者悬疑片，刺激一点的', '妈妈': '喜剧片最好，全家人一起笑', '哥哥': '科幻大片，特效好的，越长越好', '妹妹': '动画片或者爱情片，不要超过2小时' } },
+    ];
+
+    let users = [
+      { name: 'Alice', preference: '我喜欢科幻片，时长不要超过120分钟，不要恐怖片' },
+      { name: 'Bob', preference: '我想看喜剧片，轻松一点的，时长90分钟以内最好' },
+    ];
+
+    // Render state machine
+    document.getElementById('state-machine').innerHTML = STATES.filter(s => s.id !== 'fallback').map((s, i, arr) => `
+  <div class="flex items-center gap-1">
+    <div id="state-${s.id}" class="state-node px-3 py-2 rounded-lg text-xs font-medium text-center bg-slate-100 text-slate-400 min-w-[80px]">${s.label}</div>
+    ${i < arr.length - 1 ? '<span class="text-slate-300 text-xs">&rarr;</span>' : ''}
+  </div>
+`).join('');
+
+    // Render scenarios
+    document.getElementById('scenarios-list').innerHTML = SCENARIOS.map(s => `
+  <button onclick="loadScenario(${s.id})" class="w-full text-left px-3 py-2 text-sm border rounded-lg hover:bg-gray-50 transition-colors truncate">${s.id}. ${s.name}</button>
+`).join('');
+
+    function renderUsers() {
+      const container = document.getElementById('users-container');
+      container.innerHTML = users.map((u, idx) => `
+    <div class="flex gap-3 items-start">
+      <input type="text" value="${u.name}" onchange="updateUser(${idx}, 'name', this.value)"
+        class="w-24 h-10 px-3 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" placeholder="名字">
+      <input type="text" value="${u.preference}" onchange="updateUser(${idx}, 'preference', this.value)"
+        class="flex-1 h-10 px-3 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" placeholder="描述你的观影偏好">
+      <button onclick="removeUser(${idx})" class="h-10 w-10 flex items-center justify-center text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" ${users.length <= 1 ? 'disabled style="opacity:0.3"' : ''}>
+        🗑️
+      </button>
+    </div>
+  `).join('');
+      document.getElementById('user-count').textContent = users.length + '人';
+    }
+
+    function updateUser(idx, field, value) { users[idx][field] = value; }
+    function addUser() { users.push({ name: 'User' + (users.length + 1), preference: '' }); renderUsers(); }
+    function removeUser(idx) { if (users.length > 1) { users.splice(idx, 1); renderUsers(); } }
+
+    function loadScenario(id) {
+      const s = SCENARIOS.find(x => x.id === id);
+      if (s) { users = Object.entries(s.users).map(([name, preference]) => ({ name, preference })); renderUsers(); }
+    }
+
+    async function checkBackend() {
+      const statusEl = document.getElementById('backend-status');
+      try {
+        const res = await fetch(API_BASE + '/api/health', { signal: AbortSignal.timeout(10000) });
+        if (res.ok) {
+          statusEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-green-500"></span> 后端在线';
+          statusEl.className = 'text-xs px-2 py-1 rounded border flex items-center gap-1 text-green-700 bg-green-50 border-green-200';
+          document.getElementById('backend-warning').classList.add('hidden');
+          document.getElementById('btn-negotiate').disabled = false;
+        } else { throw new Error(); }
+      } catch {
+        statusEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-red-500"></span> 后端离线';
+        statusEl.className = 'text-xs px-2 py-1 rounded border flex items-center gap-1 text-red-700 bg-red-50 border-red-200';
+        document.getElementById('backend-warning').classList.remove('hidden');
+        document.getElementById('btn-negotiate').disabled = true;
+      }
+    }
+
+    async function startNegotiate() {
+      const validUsers = users.filter(u => u.name.trim() && u.preference.trim());
+      if (validUsers.length < 1) return;
+
+      // Reset UI
+      document.getElementById('result-card').classList.add('hidden');
+      document.getElementById('votes-card').classList.add('hidden');
+      document.getElementById('error-card').classList.add('hidden');
+      document.getElementById('log-card').classList.add('hidden');
+      STATES.forEach(s => {
+        const el = document.getElementById('state-' + s.id);
+        if (el) { el.style.backgroundColor = ''; el.style.color = ''; el.classList.remove('state-active'); }
+      });
+
+      // Loading
+      const btn = document.getElementById('btn-negotiate');
+      const btnIcon = document.getElementById('btn-icon');
+      const btnText = document.getElementById('btn-text');
+      btn.disabled = true;
+      btnIcon.textContent = '⏳';
+      btnText.textContent = '协商中...';
+
+      try {
+        const res = await fetch(API_BASE + '/api/negotiate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ users: validUsers, use_llm: true, use_chroma: true }),
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        showResult(data);
+      } catch (e) {
+        document.getElementById('error-text').textContent = e instanceof Error ? e.message : '请求失败';
+        document.getElementById('error-card').classList.remove('hidden');
+      } finally {
+        btn.disabled = false;
+        btnIcon.textContent = '▶';
+        btnText.textContent = '开始协商';
+      }
+    }
+
+    function showResult(data) {
+      // Activate states
+      const activeStates = new Set();
+      for (const log of data.negotiation_log || []) {
+        for (const s of STATES) {
+          if (log.includes(s.label) || log.includes(s.id)) activeStates.add(s.id);
+        }
+      }
+      activeStates.forEach(id => {
+        const s = STATES.find(x => x.id === id);
+        const el = document.getElementById('state-' + id);
+        if (el && s) { el.style.backgroundColor = s.color; el.style.color = '#fff'; el.classList.add('state-active'); }
+      });
+
+      // Result
+      if (data.movie) {
+        document.getElementById('result-title').textContent = '《' + data.movie.title + '》';
+        document.getElementById('result-genres').innerHTML = data.movie.genres.map(g => `<span class="text-xs bg-slate-100 px-2 py-1 rounded">${g}</span>`).join('');
+        document.getElementById('result-duration').textContent = data.movie.duration;
+        document.getElementById('result-rating').textContent = data.movie.rating + '/10';
+        document.getElementById('result-score').textContent = data.group_score.toFixed(1) + '/10';
+        document.getElementById('result-desc').textContent = data.movie.description || '';
+        document.getElementById('result-rounds').textContent = data.rounds_taken;
+        if (data.dissenters && data.dissenters.length > 0) {
+          document.getElementById('result-dissenters').textContent = '异议者: ' + data.dissenters.join(', ');
+          document.getElementById('result-dissenters').classList.remove('hidden');
+        } else {
+          document.getElementById('result-dissenters').classList.add('hidden');
+        }
+        if (data.is_fallback) document.getElementById('fallback-badge').classList.remove('hidden');
+        else document.getElementById('fallback-badge').classList.add('hidden');
+        document.getElementById('result-card').classList.remove('hidden');
+      }
+
+      // Votes
+      if (data.votes && data.votes.length > 0) {
+        document.getElementById('votes-list').innerHTML = data.votes.map(v => {
+          const cls = v.verdict === 'approve' ? 'vote-approve' : v.verdict === 'veto' ? 'vote-veto' : 'vote-abstain';
+          const label = v.verdict === 'approve' ? '赞成' : v.verdict === 'veto' ? '否决' : '弃权';
+          return `
+        <div class="flex items-center gap-3 p-3 rounded-lg bg-slate-50">
+          <div class="w-12 h-12 rounded-full ${cls} text-white flex items-center justify-center font-bold text-sm shrink-0">${v.score}</div>
+          <div class="flex-1 min-w-0">
+            <p class="font-medium text-sm">${v.user_name}</p>
+            <p class="text-xs text-slate-500 truncate">${v.reason}</p>
+          </div>
+          <span class="text-xs px-2 py-1 rounded ${v.verdict === 'approve' ? 'bg-green-100 text-green-700' : v.verdict === 'veto' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600'}">${label}</span>
+        </div>`;
+        }).join('');
+        document.getElementById('votes-card').classList.remove('hidden');
+      }
+
+      // Log
+      if (data.negotiation_log && data.negotiation_log.length > 0) {
+        document.getElementById('log-list').innerHTML = data.negotiation_log.map(log => {
+          let cls = 'log-normal px-2 py-1.5 rounded text-xs';
+          if (STATES.some(s => log.includes(s.label))) cls = 'log-state px-2 py-1.5 rounded text-xs';
+          else if (log.includes('否决') || log.includes('冲突')) cls = 'log-veto px-2 py-1.5 rounded text-xs';
+          else if (log.includes('赞成') || log.includes('推荐')) cls = 'log-ok px-2 py-1.5 rounded text-xs';
+          return `<div class="${cls}">${log}</div>`;
+        }).join('');
+        document.getElementById('log-card').classList.remove('hidden');
+      }
+    }
+
+    // Init
+    renderUsers();
+    checkBackend();
+  </script>
+</body>
+
+</html>

@@ -28,8 +28,13 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+test_*.py
+douban_result.json
 
 # Output
 output/
 dist/
 build/
+
+# Database
+chroma_db/
