@@ -316,14 +316,25 @@
     async function checkBackend() {
       const statusEl = document.getElementById('backend-status');
       try {
-        const res = await fetch(API_BASE + '/api/health', { signal: AbortSignal.timeout(10000) });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+        
+        const res = await fetch(API_BASE + '/api/health', { 
+          signal: controller.signal,
+          headers: { 'Accept': 'application/json' }
+        });
+        clearTimeout(timeoutId);
+        
         if (res.ok) {
           statusEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-green-500"></span> 后端在线';
           statusEl.className = 'text-xs px-2 py-1 rounded border flex items-center gap-1 text-green-700 bg-green-50 border-green-200';
           document.getElementById('backend-warning').classList.add('hidden');
           document.getElementById('btn-negotiate').disabled = false;
-        } else { throw new Error(); }
-      } catch {
+        } else { 
+          throw new Error(`HTTP ${res.status}`); 
+        }
+      } catch (err) {
+        console.error('Backend check failed:', err);
         statusEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-red-500"></span> 后端离线';
         statusEl.className = 'text-xs px-2 py-1 rounded border flex items-center gap-1 text-red-700 bg-red-50 border-red-200';
         document.getElementById('backend-warning').classList.remove('hidden');
@@ -333,7 +344,15 @@
 
     async function startNegotiate() {
       const validUsers = users.filter(u => u.name.trim() && u.preference.trim());
-      if (validUsers.length < 1) return;
+      if (validUsers.length < 1) {
+        showError('请至少添加一个有效用户');
+        return;
+      }
+      
+      if (validUsers.length > 10) {
+        showError('最多支持 10 个用户');
+        return;
+      }
 
       // Reset UI
       document.getElementById('result-card').classList.add('hidden');
@@ -354,23 +373,44 @@
       btnText.textContent = '协商中...';
 
       try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout
+        
         const res = await fetch(API_BASE + '/api/negotiate', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
           body: JSON.stringify({ users: validUsers, use_llm: true, use_chroma: true }),
+          signal: controller.signal,
         });
-        if (!res.ok) throw new Error('HTTP ' + res.status);
+        clearTimeout(timeoutId);
+        
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}));
+          throw new Error(errorData.detail || errorData.message || `HTTP ${res.status}`);
+        }
+        
         const data = await res.json();
-        if (data.error) throw new Error(data.error);
+        if (data.error) {
+          throw new Error(data.message || data.error);
+        }
         showResult(data);
       } catch (e) {
-        document.getElementById('error-text').textContent = e instanceof Error ? e.message : '请求失败';
-        document.getElementById('error-card').classList.remove('hidden');
+        console.error('Negotiation failed:', e);
+        if (e.name === 'AbortError') {
+          showError('请求超时，请重试');
+        } else {
+          showError(e instanceof Error ? e.message : '请求失败，请检查网络连接');
+        }
       } finally {
         btn.disabled = false;
         btnIcon.textContent = '▶';
         btnText.textContent = '开始协商';
       }
+    }
+    
+    function showError(message) {
+      document.getElementById('error-text').textContent = message;
+      document.getElementById('error-card').classList.remove('hidden');
     }
 
     function showResult(data) {
